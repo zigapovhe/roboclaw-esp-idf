@@ -6,12 +6,12 @@
 #include "roboclaw.h"
 #include "roboclaw_uart.h"
 
-static const char *TAG = "ROBOCLAW_MAIN";
+static const char *TAG = "ROBOCLAW_MOVE_EXAMPLE";
 
 #define ROBOCLAW_ADDRESS 0x80
 
 void app_main(void) {
-    ESP_LOGI(TAG, "Starting RoboClaw ESP-IDF Library Demo");
+    ESP_LOGI(TAG, "RoboClaw Motor Movement Example");
     
     // Initialize UART communication at 38400 baud
     begin(38400);
@@ -19,28 +19,8 @@ void app_main(void) {
     // Give RoboClaw time to initialize
     vTaskDelay(pdMS_TO_TICKS(1000));
     
-    // Test version reading
+    // Test motor movement
     while (1) {
-        char version[64];
-        
-        ESP_LOGI(TAG, "Reading RoboClaw version...");
-        
-        if (ReadVersion(ROBOCLAW_ADDRESS, version)) {
-            ESP_LOGI(TAG, "SUCCESS - RoboClaw Version: '%s'", version);
-        } else {
-            ESP_LOGE(TAG, "FAILED to read version");
-        }
-        
-        // Test reading battery voltage
-        bool valid;
-        uint16_t battery_voltage = ReadMainBatteryVoltage(ROBOCLAW_ADDRESS, &valid);
-        if (valid) {
-            ESP_LOGI(TAG, "Main Battery Voltage: %d (raw)", battery_voltage);
-        } else {
-            ESP_LOGE(TAG, "Failed to read battery voltage");
-        }
-        /*
-        // Test motor movement
         ESP_LOGI(TAG, "Testing motor forward movement...");
         if (ForwardM1(ROBOCLAW_ADDRESS, 64)) {
             ESP_LOGI(TAG, "Motor 1 forward command sent successfully");
@@ -56,7 +36,7 @@ void app_main(void) {
         } else {
             ESP_LOGE(TAG, "Failed to stop motor 1");
         }
-        */
+        
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
