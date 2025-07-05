@@ -4,6 +4,20 @@
 #include <stdint.h>
 #include "roboclaw_crc.h"
 
+// Default RoboClaw address
+#define ROBOCLAW_DEFAULT_ADDRESS 0x80
+
+// RoboClaw error status bits
+#define ROBOCLAW_STATUS_NORMAL     0x00
+#define ROBOCLAW_STATUS_M1_OVERCURRENT  0x01
+#define ROBOCLAW_STATUS_M2_OVERCURRENT  0x02
+#define ROBOCLAW_STATUS_ESTOP      0x04
+#define ROBOCLAW_STATUS_TEMP_ERROR 0x08
+#define ROBOCLAW_STATUS_TEMP2_ERROR 0x10
+#define ROBOCLAW_STATUS_MBATT_HIGH 0x20
+#define ROBOCLAW_STATUS_LBATT_HIGH 0x40
+#define ROBOCLAW_STATUS_LBATT_LOW  0x80
+
 // RoboClaw command definitions (from Arduino library)
 enum {
     M1FORWARD = 0,
@@ -100,8 +114,6 @@ enum {
     FLAGBOOTLOADER = 255
 };
 
-// Core communication functions (now using working approach)
-
 // Motor control functions
 bool ForwardM1(uint8_t address, uint8_t speed);
 bool BackwardM1(uint8_t address, uint8_t speed);
@@ -110,18 +122,48 @@ bool BackwardM2(uint8_t address, uint8_t speed);
 bool SpeedM1(uint8_t address, uint32_t speed);
 bool SpeedM2(uint8_t address, uint32_t speed);
 
+// --- Duty cycle control ---
+bool DutyM1(uint8_t address, int16_t duty);
+bool DutyM2(uint8_t address, int16_t duty);
+
+// --- Acceleration control ---
+bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed);
+bool SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t speed);
+
 // Encoder functions
 uint32_t ReadEncM1(uint8_t address, uint8_t *status, bool *valid);
 uint32_t ReadEncM2(uint8_t address, uint8_t *status, bool *valid);
 bool ResetEncoders(uint8_t address);
 
-// Version and diagnostics
-bool ReadVersion(uint8_t address, char *version);
+// --- Speed ---
+uint32_t ReadSpeedM1(uint8_t address, uint8_t *status, bool *valid);
+uint32_t ReadSpeedM2(uint8_t address, uint8_t *status, bool *valid);
 
-// Battery voltage functions
+// --- Currents ---
+bool ReadCurrents(uint8_t address, int32_t *motor1_current, int32_t *motor2_current);
+
+// --- Temperature ---
+uint16_t ReadTemp(uint8_t address, bool *valid);
+uint16_t ReadTemp2(uint8_t address, bool *valid);
+
+// --- Battery voltages ---
 uint16_t ReadMainBatteryVoltage(uint8_t address, bool *valid);
 uint16_t ReadLogicBatteryVoltage(uint8_t address, bool *valid);
 
-// Speed reading functions
-uint32_t ReadSpeedM1(uint8_t address, uint8_t *status, bool *valid);
-uint32_t ReadSpeedM2(uint8_t address, uint8_t *status, bool *valid);
+// Version and diagnostics
+bool ReadVersion(uint8_t address, char *version);
+bool ReadError(uint8_t address, uint8_t *error);
+
+// --- Optional: Mixed controls (not yet implemented in .c, just listed for completeness) ---
+bool ForwardMixed(uint8_t address, uint8_t speed);
+bool BackwardMixed(uint8_t address, uint8_t speed);
+bool TurnRightMixed(uint8_t address, uint8_t speed);
+bool TurnLeftMixed(uint8_t address, uint8_t speed);
+bool ForwardBackwardMixed(uint8_t address, uint8_t speed);
+bool LeftRightMixed(uint8_t address, uint8_t speed);
+
+// --- Optional: Stop helpers (not implemented yet, but declared) ---
+bool StopM1(uint8_t address);
+bool StopM2(uint8_t address);
+bool StopAll(uint8_t address);
+
