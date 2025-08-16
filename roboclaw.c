@@ -412,25 +412,27 @@ uint32_t ReadSpeedM2(uint8_t address, uint8_t *status, bool *valid) {
 // Current reading functions
 bool ReadCurrents(uint8_t address, int32_t *motor1_current, int32_t *motor2_current) {
     if (!motor1_current || !motor2_current) return false;
-    
-    uint8_t buffer[8]; // 4 bytes M1 + 4 bytes M2
-    if (!read_data_with_crc(address, GETCURRENTS, buffer, 8, 1000)) {
+
+    uint8_t buffer[6]; // 4 data + 2 CRC
+
+    if (!read_data_with_crc(address, GETCURRENTS, buffer, 4, 1000)) {
         return false;
     }
-    
-    // Extract current values (big endian, signed)
-    *motor1_current = (int32_t)(((uint32_t)buffer[0] << 24) | 
-                                ((uint32_t)buffer[1] << 16) | 
-                                ((uint32_t)buffer[2] << 8) | 
-                                buffer[3]);
-    
-    *motor2_current = (int32_t)(((uint32_t)buffer[4] << 24) | 
-                                ((uint32_t)buffer[5] << 16) | 
-                                ((uint32_t)buffer[6] << 8) | 
-                                buffer[7]);
-    
+
+    // Log raw response
+    ESP_LOGD("ROBOCLAW", "Current response: %02X %02X %02X %02X",
+             buffer[0], buffer[1], buffer[2], buffer[3]);
+
+    // Interpret 2 signed 16-bit values (big endian)
+    int16_t current1 = (int16_t)((buffer[0] << 8) | buffer[1]);
+    int16_t current2 = (int16_t)((buffer[2] << 8) | buffer[3]);
+
+    *motor1_current = (int32_t)current1;
+    *motor2_current = (int32_t)current2;
+
     return true;
 }
+
 
 // Temperature reading functions
 uint16_t ReadTemp(uint8_t address, bool *valid) {
