@@ -1,23 +1,49 @@
 # RoboClaw ESP-IDF Library
 
-Unofficial port of the [RoboClaw Arduino Library](https://github.com/basicmicro/roboclaw_arduino_library) for ESP-IDF.
+Unofficial port of the [Basicmicro Arduino Library](https://github.com/basicmicro/basicmicro_arduino) for ESP-IDF.
 
-## Why I made this
+**This is unofficial - not made by or endorsed by BasicMicro!**
 
-I needed to use a RoboClaw motor controller in my ESP-IDF project, but the existing library is for Arduino. So I ported it to work with ESP-IDF.
+## Features
 
-**⚠️ This is unofficial - not made by or endorsed by BasicMicro!**
+### Motor Control
+- `ForwardM1()`, `BackwardM1()`, `ForwardM2()`, `BackwardM2()` — basic speed control
+- `DutyM1()`, `DutyM2()`, `DutyM1M2()` — direct PWM duty cycle (-32767 to +32767)
+- `DutyAccelM1()`, `DutyAccelM2()`, `DutyAccelM1M2()` — duty cycle with hardware acceleration ramp
+- `SpeedM1()`, `SpeedM2()` — encoder-based speed control
+- `SpeedAccelM1()`, `SpeedAccelM2()` — speed with acceleration
+- `ForwardMixed()`, `BackwardMixed()`, `TurnRightMixed()`, `TurnLeftMixed()` — mixed mode
+- `StopM1()`, `StopM2()`, `StopAll()` — stop helpers
 
-## What works
+### Encoders
+- `ReadEncM1()`, `ReadEncM2()` — read encoder counts
+- `ReadSpeedM1()`, `ReadSpeedM2()` — read encoder speeds
+- `ResetEncoders()` — reset encoder counts to zero
 
-- Motor control: `ForwardM1()`, `BackwardM1()`, `SpeedM1()`, etc.
-- Reading encoders: `ReadEncM1()`, `ReadEncM2()`
-- Reading speeds: `ReadSpeedM1()`, `ReadSpeedM2()`
-- Battery voltage: `ReadMainBatteryVoltage()`, `ReadLogicBatteryVoltage()`
-- Version info: `ReadVersion()`
-- Reset encoders: `ResetEncoders()`
+### Diagnostics
+- `ReadVersion()` — firmware version string
+- `ReadError()` — 32-bit error/warning status with detailed flags
+- `GetStatus()` — comprehensive status in one call (voltages, temps, currents, encoders, speeds, errors)
+- `ReadMainBatteryVoltage()`, `ReadLogicBatteryVoltage()` — battery voltages
+- `ReadTemp()`, `ReadTemp2()` — board temperatures
+- `ReadCurrents()` — motor currents
+- `ReadBuffers()` — command buffer depths
+- `ReadPWMs()` — current PWM output values
 
-## Hardware setup
+### Configuration
+- `SetTimeout()`, `GetTimeout()` — communication timeout (auto-stop if no commands received)
+- `SetMainVoltages()`, `ReadMinMaxMainVoltages()` — main battery voltage limits
+- `SetLogicVoltages()`, `ReadMinMaxLogicVoltages()` — logic battery voltage limits
+- `SetM1MaxCurrent()`, `SetM2MaxCurrent()` — per-motor current limits
+- `ReadM1MaxCurrent()`, `ReadM2MaxCurrent()` — read current limits
+- `WriteNVM()` — save settings to flash
+- `ReadNVM()` — reload settings from flash
+- `RestoreDefaults()` — factory reset
+
+### Thread Safety
+- `roboclaw_enable_thread_safety()` — opt-in UART mutex for multi-task access (zero overhead if not enabled)
+
+## Hardware Setup
 
 **Default pins:**
 - TX: GPIO 17 → RoboClaw S1 (RX)
@@ -26,7 +52,9 @@ I needed to use a RoboClaw motor controller in my ESP-IDF project, but the exist
 
 **Default baud rate:** 38400
 
-## Basic usage
+Multiple RoboClaws can share the same TX/RX pins using different addresses (0x80, 0x81, etc.).
+
+## Basic Usage
 
 ```c
 #include "roboclaw.h"
@@ -35,21 +63,22 @@ I needed to use a RoboClaw motor controller in my ESP-IDF project, but the exist
 #define ROBOCLAW_ADDRESS 0x80
 
 void app_main(void) {
-    // Start UART
     begin(38400);
-    
-    // Read version
+
+    // Optional: enable thread safety if using multiple FreeRTOS tasks
+    // roboclaw_enable_thread_safety();
+
     char version[64];
     if (ReadVersion(ROBOCLAW_ADDRESS, version)) {
         printf("Version: %s\n", version);
     }
-    
-    // Move motor forward at 50% speed
-    ForwardM1(ROBOCLAW_ADDRESS, 64);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    
+
+    // Set duty with acceleration ramp
+    DutyAccelM1M2(ROBOCLAW_ADDRESS, 16000, 5000, 16000, 5000);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
     // Stop
-    ForwardM1(ROBOCLAW_ADDRESS, 0);
+    DutyM1M2(ROBOCLAW_ADDRESS, 0, 0);
 }
 ```
 
@@ -72,28 +101,17 @@ Want different baud rate? Just change it:
 begin(115200);  // Instead of 38400
 ```
 
-## How it's different from Arduino version
+## Original Library
 
-- Uses ESP-IDF UART instead of Arduino Serial
-- Simpler communication (no complex retries)
-- Works with FreeRTOS
-- Only includes the functions I actually needed
-
-## Original library
-
-Based on BasicMicro's [official Arduino library](https://github.com/basicmicro/roboclaw_arduino_library).
+Based on BasicMicro's [official Arduino library](https://github.com/basicmicro/basicmicro_arduino).
 
 ## Compatibility
 
 - ESP-IDF 5.0+
 - ESP32, ESP32-S2, ESP32-S3, ESP32-C3
-- Any RoboClaw with serial communication
+- Any RoboClaw with packet serial communication
 
 ## Issues?
 
-For RoboClaw hardware problems: contact [BasicMicro](https://www.basicmicro.com/)  
+For RoboClaw hardware problems: contact [BasicMicro](https://www.basicmicro.com/)
 For this ESP-IDF port: open an issue here
-
----
-
-**Note:** This is just my personal port. For official ESP32 support, ask BasicMicro.
