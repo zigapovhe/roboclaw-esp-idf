@@ -488,17 +488,22 @@ uint16_t ReadTemp2(uint8_t address, bool *valid) {
     return value;
 }
 
-// Error reading function
-bool ReadError(uint8_t address, uint8_t *error) {
-    if (!error) return false;
-    
-    uint8_t buffer[1];
-    if (!read_data_with_crc(address, GETERROR, buffer, 1, 1000)) {
-        return false;
+// Error reading function (32-bit status, matches official Basicmicro library)
+uint32_t ReadError(uint8_t address, bool *valid) {
+    if (valid) *valid = false;
+
+    uint8_t buffer[4];
+    if (!read_data_with_crc(address, GETERROR, buffer, 4, 1000)) {
+        return 0;
     }
-    
-    *error = buffer[0];
-    return true;
+
+    uint32_t value = ((uint32_t)buffer[0] << 24) |
+                     ((uint32_t)buffer[1] << 16) |
+                     ((uint32_t)buffer[2] << 8) |
+                     buffer[3];
+
+    if (valid) *valid = true;
+    return value;
 }
 
 // Duty cycle control functions (direct PWM control)
@@ -543,6 +548,85 @@ bool DutyM2(uint8_t address, int16_t duty) {
     flush();
     int sent = write_bytes(packet, 6);
     if (sent != 6) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool DutyM1M2(uint8_t address, int16_t duty1, int16_t duty2) {
+    uart_lock();
+
+    uint8_t packet[8];
+    packet[0] = address;
+    packet[1] = MIXEDDUTY;
+    packet[2] = (uint8_t)(duty1 >> 8);
+    packet[3] = (uint8_t)(duty1 & 0xFF);
+    packet[4] = (uint8_t)(duty2 >> 8);
+    packet[5] = (uint8_t)(duty2 & 0xFF);
+
+    uint16_t crc = roboclaw_crc16(packet, 6);
+    packet[6] = (uint8_t)(crc >> 8);
+    packet[7] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 8);
+    if (sent != 8) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool DutyAccelM1(uint8_t address, int16_t duty, uint32_t accel) {
+    uart_lock();
+
+    uint8_t packet[10];
+    packet[0] = address;
+    packet[1] = M1DUTYACCEL;
+    packet[2] = (uint8_t)(duty >> 8);
+    packet[3] = (uint8_t)(duty & 0xFF);
+    packet[4] = (uint8_t)(accel >> 24);
+    packet[5] = (uint8_t)(accel >> 16);
+    packet[6] = (uint8_t)(accel >> 8);
+    packet[7] = (uint8_t)(accel);
+
+    uint16_t crc = roboclaw_crc16(packet, 8);
+    packet[8] = (uint8_t)(crc >> 8);
+    packet[9] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 10);
+    if (sent != 10) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool DutyAccelM2(uint8_t address, int16_t duty, uint32_t accel) {
+    uart_lock();
+
+    uint8_t packet[10];
+    packet[0] = address;
+    packet[1] = M2DUTYACCEL;
+    packet[2] = (uint8_t)(duty >> 8);
+    packet[3] = (uint8_t)(duty & 0xFF);
+    packet[4] = (uint8_t)(accel >> 24);
+    packet[5] = (uint8_t)(accel >> 16);
+    packet[6] = (uint8_t)(accel >> 8);
+    packet[7] = (uint8_t)(accel);
+
+    uint16_t crc = roboclaw_crc16(packet, 8);
+    packet[8] = (uint8_t)(crc >> 8);
+    packet[9] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 10);
+    if (sent != 10) { uart_unlock(); return false; }
 
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
@@ -638,6 +722,272 @@ bool SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t speed) {
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
     uart_unlock();
     return (len == 1 && response == 0xFF);
+}
+
+// Timeout functions
+bool SetTimeout(uint8_t address, uint8_t timeout_ds) {
+    return send_command_with_byte(address, SETTIMEOUT, timeout_ds);
+}
+
+uint8_t GetTimeout(uint8_t address, bool *valid) {
+    if (valid) *valid = false;
+
+    uint8_t buffer[1];
+    if (!read_data_with_crc(address, GETTIMEOUT, buffer, 1, 1000)) {
+        return 0;
+    }
+
+    if (valid) *valid = true;
+    return buffer[0];
+}
+
+// Voltage limit functions
+bool SetMainVoltages(uint8_t address, uint16_t min, uint16_t max, uint8_t auto_max) {
+    uart_lock();
+
+    uint8_t packet[9];
+    packet[0] = address;
+    packet[1] = SETMAINVOLTAGES;
+    packet[2] = (uint8_t)(min >> 8);
+    packet[3] = (uint8_t)(min & 0xFF);
+    packet[4] = (uint8_t)(max >> 8);
+    packet[5] = (uint8_t)(max & 0xFF);
+    packet[6] = auto_max;
+
+    uint16_t crc = roboclaw_crc16(packet, 7);
+    packet[7] = (uint8_t)(crc >> 8);
+    packet[8] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 9);
+    if (sent != 9) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool SetLogicVoltages(uint8_t address, uint16_t min, uint16_t max) {
+    uart_lock();
+
+    uint8_t packet[8];
+    packet[0] = address;
+    packet[1] = SETLOGICVOLTAGES;
+    packet[2] = (uint8_t)(min >> 8);
+    packet[3] = (uint8_t)(min & 0xFF);
+    packet[4] = (uint8_t)(max >> 8);
+    packet[5] = (uint8_t)(max & 0xFF);
+
+    uint16_t crc = roboclaw_crc16(packet, 6);
+    packet[6] = (uint8_t)(crc >> 8);
+    packet[7] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 8);
+    if (sent != 8) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool ReadMinMaxMainVoltages(uint8_t address, uint16_t *min, uint16_t *max, uint8_t *auto_max) {
+    if (!min || !max) return false;
+
+    uint8_t buffer[5];
+    if (!read_data_with_crc(address, GETMINMAXMAINVOLTAGES, buffer, 5, 1000)) {
+        return false;
+    }
+
+    *min = ((uint16_t)buffer[0] << 8) | buffer[1];
+    *max = ((uint16_t)buffer[2] << 8) | buffer[3];
+    if (auto_max) *auto_max = buffer[4];
+    return true;
+}
+
+bool ReadMinMaxLogicVoltages(uint8_t address, uint16_t *min, uint16_t *max) {
+    if (!min || !max) return false;
+
+    uint8_t buffer[4];
+    if (!read_data_with_crc(address, GETMINMAXLOGICVOLTAGES, buffer, 4, 1000)) {
+        return false;
+    }
+
+    *min = ((uint16_t)buffer[0] << 8) | buffer[1];
+    *max = ((uint16_t)buffer[2] << 8) | buffer[3];
+    return true;
+}
+
+// Current limit functions
+bool SetM1MaxCurrent(uint8_t address, uint32_t max, uint32_t min) {
+    uart_lock();
+
+    uint8_t packet[12];
+    packet[0] = address;
+    packet[1] = SETM1MAXCURRENT;
+    packet[2] = (uint8_t)(max >> 24);
+    packet[3] = (uint8_t)(max >> 16);
+    packet[4] = (uint8_t)(max >> 8);
+    packet[5] = (uint8_t)(max);
+    packet[6] = (uint8_t)(min >> 24);
+    packet[7] = (uint8_t)(min >> 16);
+    packet[8] = (uint8_t)(min >> 8);
+    packet[9] = (uint8_t)(min);
+
+    uint16_t crc = roboclaw_crc16(packet, 10);
+    packet[10] = (uint8_t)(crc >> 8);
+    packet[11] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 12);
+    if (sent != 12) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool SetM2MaxCurrent(uint8_t address, uint32_t max, uint32_t min) {
+    uart_lock();
+
+    uint8_t packet[12];
+    packet[0] = address;
+    packet[1] = SETM2MAXCURRENT;
+    packet[2] = (uint8_t)(max >> 24);
+    packet[3] = (uint8_t)(max >> 16);
+    packet[4] = (uint8_t)(max >> 8);
+    packet[5] = (uint8_t)(max);
+    packet[6] = (uint8_t)(min >> 24);
+    packet[7] = (uint8_t)(min >> 16);
+    packet[8] = (uint8_t)(min >> 8);
+    packet[9] = (uint8_t)(min);
+
+    uint16_t crc = roboclaw_crc16(packet, 10);
+    packet[10] = (uint8_t)(crc >> 8);
+    packet[11] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 12);
+    if (sent != 12) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
+bool ReadM1MaxCurrent(uint8_t address, uint32_t *max, uint32_t *min) {
+    if (!max || !min) return false;
+
+    uint8_t buffer[8];
+    if (!read_data_with_crc(address, GETM1MAXCURRENT, buffer, 8, 1000)) {
+        return false;
+    }
+
+    *max = ((uint32_t)buffer[0] << 24) | ((uint32_t)buffer[1] << 16) |
+           ((uint32_t)buffer[2] << 8) | buffer[3];
+    *min = ((uint32_t)buffer[4] << 24) | ((uint32_t)buffer[5] << 16) |
+           ((uint32_t)buffer[6] << 8) | buffer[7];
+    return true;
+}
+
+bool ReadM2MaxCurrent(uint8_t address, uint32_t *max, uint32_t *min) {
+    if (!max || !min) return false;
+
+    uint8_t buffer[8];
+    if (!read_data_with_crc(address, GETM2MAXCURRENT, buffer, 8, 1000)) {
+        return false;
+    }
+
+    *max = ((uint32_t)buffer[0] << 24) | ((uint32_t)buffer[1] << 16) |
+           ((uint32_t)buffer[2] << 8) | buffer[3];
+    *min = ((uint32_t)buffer[4] << 24) | ((uint32_t)buffer[5] << 16) |
+           ((uint32_t)buffer[6] << 8) | buffer[7];
+    return true;
+}
+
+// NVM functions (require magic number 0xE22EAB7A)
+bool WriteNVM(uint8_t address) {
+    return send_command_with_dword(address, WRITENVM, 0xE22EAB7A);
+}
+
+bool ReadNVM(uint8_t address) {
+    return send_simple_command(address, READNVM);
+}
+
+bool RestoreDefaults(uint8_t address) {
+    return send_command_with_dword(address, RESTOREDEFAULTS, 0xE22EAB7A);
+}
+
+// Buffer and PWM reading
+bool ReadBuffers(uint8_t address, uint8_t *depth1, uint8_t *depth2) {
+    if (!depth1 || !depth2) return false;
+
+    uint8_t buffer[2];
+    if (!read_data_with_crc(address, GETBUFFERS, buffer, 2, 1000)) {
+        return false;
+    }
+
+    *depth1 = buffer[0];
+    *depth2 = buffer[1];
+    return true;
+}
+
+bool ReadPWMs(uint8_t address, int16_t *pwm1, int16_t *pwm2) {
+    if (!pwm1 || !pwm2) return false;
+
+    uint8_t buffer[4];
+    if (!read_data_with_crc(address, GETPWMS, buffer, 4, 1000)) {
+        return false;
+    }
+
+    *pwm1 = (int16_t)(((uint16_t)buffer[0] << 8) | buffer[1]);
+    *pwm2 = (int16_t)(((uint16_t)buffer[2] << 8) | buffer[3]);
+    return true;
+}
+
+// Comprehensive status (56 data bytes)
+bool GetStatus(uint8_t address, uint32_t *tick, uint32_t *state,
+               uint16_t *temp1, uint16_t *temp2,
+               uint16_t *main_batt, uint16_t *logic_batt,
+               int16_t *pwm1, int16_t *pwm2,
+               int16_t *current1, int16_t *current2,
+               uint32_t *enc1, uint32_t *enc2,
+               uint32_t *speed1, uint32_t *speed2,
+               uint32_t *ispeed1, uint32_t *ispeed2,
+               uint16_t *speed_error1, uint16_t *speed_error2,
+               uint16_t *pos_error1, uint16_t *pos_error2) {
+    uint8_t buffer[56];
+    if (!read_data_with_crc(address, GETSTATUS, buffer, 56, 1000)) {
+        return false;
+    }
+
+    int i = 0;
+    if (tick)         { *tick         = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (state)        { *state        = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (temp1)        { *temp1        = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (temp2)        { *temp2        = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (main_batt)    { *main_batt    = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (logic_batt)   { *logic_batt   = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (pwm1)         { *pwm1         = (int16_t)(((uint16_t)buffer[i]<<8) | buffer[i+1]); } i += 2;
+    if (pwm2)         { *pwm2         = (int16_t)(((uint16_t)buffer[i]<<8) | buffer[i+1]); } i += 2;
+    if (current1)     { *current1     = (int16_t)(((uint16_t)buffer[i]<<8) | buffer[i+1]); } i += 2;
+    if (current2)     { *current2     = (int16_t)(((uint16_t)buffer[i]<<8) | buffer[i+1]); } i += 2;
+    if (enc1)         { *enc1         = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (enc2)         { *enc2         = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (speed1)       { *speed1       = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (speed2)       { *speed2       = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (ispeed1)      { *ispeed1      = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (ispeed2)      { *ispeed2      = ((uint32_t)buffer[i]<<24) | ((uint32_t)buffer[i+1]<<16) | ((uint32_t)buffer[i+2]<<8) | buffer[i+3]; } i += 4;
+    if (speed_error1) { *speed_error1 = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (speed_error2) { *speed_error2 = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (pos_error1)   { *pos_error1   = ((uint16_t)buffer[i]<<8) | buffer[i+1]; } i += 2;
+    if (pos_error2)   { *pos_error2   = ((uint16_t)buffer[i]<<8) | buffer[i+1]; }
+
+    return true;
 }
 
 // Stop functions

@@ -14,7 +14,6 @@ static SemaphoreHandle_t uart_mutex = NULL;
 
 // Initialize UART
 void begin(uint32_t baud_rate) {
-    uart_mutex = xSemaphoreCreateMutex();
     const uart_config_t uart_config = {
         .baud_rate = baud_rate,
         .data_bits = UART_DATA_8_BITS,
@@ -46,7 +45,13 @@ int write_bytes(const uint8_t *data, size_t length) {
     return uart_write_bytes(uart_num, data, length);
 }
 
-// Thread-safe UART access
+// Enable thread-safe UART access (call once after begin() if using multiple tasks)
+void roboclaw_enable_thread_safety(void) {
+    if (!uart_mutex) {
+        uart_mutex = xSemaphoreCreateMutex();
+    }
+}
+
 void uart_lock(void) {
     if (uart_mutex) xSemaphoreTake(uart_mutex, portMAX_DELAY);
 }
