@@ -634,6 +634,39 @@ bool DutyAccelM2(uint8_t address, int16_t duty, uint32_t accel) {
     return (len == 1 && response == 0xFF);
 }
 
+bool DutyAccelM1M2(uint8_t address, int16_t duty1, uint32_t accel1, int16_t duty2, uint32_t accel2) {
+    uart_lock();
+
+    uint8_t packet[16];
+    packet[0]  = address;
+    packet[1]  = MIXEDDUTYACCEL;
+    packet[2]  = (uint8_t)(duty1 >> 8);
+    packet[3]  = (uint8_t)(duty1 & 0xFF);
+    packet[4]  = (uint8_t)(accel1 >> 24);
+    packet[5]  = (uint8_t)(accel1 >> 16);
+    packet[6]  = (uint8_t)(accel1 >> 8);
+    packet[7]  = (uint8_t)(accel1);
+    packet[8]  = (uint8_t)(duty2 >> 8);
+    packet[9]  = (uint8_t)(duty2 & 0xFF);
+    packet[10] = (uint8_t)(accel2 >> 24);
+    packet[11] = (uint8_t)(accel2 >> 16);
+    packet[12] = (uint8_t)(accel2 >> 8);
+    packet[13] = (uint8_t)(accel2);
+
+    uint16_t crc = roboclaw_crc16(packet, 14);
+    packet[14] = (uint8_t)(crc >> 8);
+    packet[15] = (uint8_t)(crc & 0xFF);
+
+    flush();
+    int sent = write_bytes(packet, 16);
+    if (sent != 16) { uart_unlock(); return false; }
+
+    uint8_t response;
+    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
+    return (len == 1 && response == 0xFF);
+}
+
 // Mixed motor control functions
 bool ForwardMixed(uint8_t address, uint8_t speed) {
     return send_command_with_byte(address, MIXEDFORWARD, speed);

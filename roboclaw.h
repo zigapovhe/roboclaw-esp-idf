@@ -147,6 +147,7 @@ bool DutyM1M2(uint8_t address, int16_t duty1, int16_t duty2);
 // --- Duty cycle with acceleration ---
 bool DutyAccelM1(uint8_t address, int16_t duty, uint32_t accel);
 bool DutyAccelM2(uint8_t address, int16_t duty, uint32_t accel);
+bool DutyAccelM1M2(uint8_t address, int16_t duty1, uint32_t accel1, int16_t duty2, uint32_t accel2);
 
 // --- Acceleration control ---
 bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed);
