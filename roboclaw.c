@@ -18,95 +18,103 @@ static const char *TAG = "ROBOCLAW";
 
 // Helper function to send a simple command (address + command + CRC)
 static bool send_simple_command(uint8_t address, uint8_t command) {
+    uart_lock();
+
     uint8_t packet[4];
     packet[0] = address;
     packet[1] = command;
-    
+
     // Calculate CRC on address + command
     uint16_t crc = roboclaw_crc16(packet, 2);
-    
+
     // Add CRC to packet
     packet[2] = (uint8_t)(crc >> 8);
     packet[3] = (uint8_t)(crc & 0xFF);
-    
+
     // Clear UART buffer
     flush();
-    
+
     // Send entire packet at once
     int sent = write_bytes(packet, 4);
     if (sent != 4) {
         ESP_LOGE(TAG, "Failed to send command: sent %d/4 bytes", sent);
+        uart_unlock();
         return false;
     }
-    
+
     // Wait for 0xFF response with 10ms timeout
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
-    
+
     if (len == 1 && response == 0xFF) {
+        uart_unlock();
         return true;
     }
-    
+
     ESP_LOGE(TAG, "Invalid response: len=%d, data=0x%02X", len, len > 0 ? response : 0);
+    uart_unlock();
     return false;
 }
 
 // Helper function to send a command with one byte parameter
 static bool send_command_with_byte(uint8_t address, uint8_t command, uint8_t value) {
     const int MAX_RETRIES = 3;
-    
-    ESP_LOGI(TAG, "send_command_with_byte: addr=0x%02X, cmd=0x%02X, value=%d", 
+
+    ESP_LOGD(TAG, "send_command_with_byte: addr=0x%02X, cmd=0x%02X, value=%d",
              address, command, value);
-    
+
+    uart_lock();
+
     for (int retry = 0; retry < MAX_RETRIES; retry++) {
         if (retry > 0) {
-            ESP_LOGI(TAG, "Retry %d/%d", retry + 1, MAX_RETRIES);
+            ESP_LOGD(TAG, "Retry %d/%d", retry + 1, MAX_RETRIES);
             // Wait more than 10ms to ensure packet timeout clears any partial data
-            vTaskDelay(pdMS_TO_TICKS(15)); 
+            vTaskDelay(pdMS_TO_TICKS(15));
         }
-        
+
         // Build complete packet first
         uint8_t packet[5];
         packet[0] = address;
         packet[1] = command;
         packet[2] = value;
-        
+
         // Calculate CRC on address + command + value
         uint16_t crc = roboclaw_crc16(packet, 3);
-        
+
         // Add CRC to packet
         packet[3] = (uint8_t)(crc >> 8);
         packet[4] = (uint8_t)(crc & 0xFF);
-        
-        ESP_LOGI(TAG, "Sending packet: [0x%02X 0x%02X 0x%02X 0x%02X 0x%02X]", 
+
+        ESP_LOGD(TAG, "Sending packet: [0x%02X 0x%02X 0x%02X 0x%02X 0x%02X]",
                  packet[0], packet[1], packet[2], packet[3], packet[4]);
-        
+
         // Clear UART buffer before sending
         flush();
-        
+
         // CRITICAL: Send entire packet at once to avoid 10ms timeout between bytes
         int sent = write_bytes(packet, 5);
-        ESP_LOGI(TAG, "Bytes sent: %d/5", sent);
-        
+        ESP_LOGD(TAG, "Bytes sent: %d/5", sent);
+
         if (sent != 5) {
             ESP_LOGE(TAG, "Failed to send all bytes");
             // Wait > 10ms before retry to clear packet buffer
             vTaskDelay(pdMS_TO_TICKS(15));
             continue;
         }
-        
+
         // Wait for 0xFF acknowledgment with 10ms timeout
         // This also ensures packet buffer clears if no response
         uint8_t response = 0;
         int len = read_bytes(&response, 1, 10); // 10ms timeout as per docs
-        
-        ESP_LOGI(TAG, "Response: len=%d, data=0x%02X", len, len > 0 ? response : 0);
-        
+
+        ESP_LOGD(TAG, "Response: len=%d, data=0x%02X", len, len > 0 ? response : 0);
+
         if (len == 1 && response == 0xFF) {
-            ESP_LOGI(TAG, "Command successful!");
+            ESP_LOGD(TAG, "Command successful!");
+            uart_unlock();
             return true;
         }
-        
+
         // No response or wrong response - packet buffer will auto-clear after 10ms
         if (len > 0) {
             ESP_LOGW(TAG, "Unexpected response: 0x%02X", response);
@@ -114,13 +122,16 @@ static bool send_command_with_byte(uint8_t address, uint8_t command, uint8_t val
             ESP_LOGW(TAG, "No response received (packet may be invalid)");
         }
     }
-    
+
     ESP_LOGE(TAG, "All retries failed!");
+    uart_unlock();
     return false;
 }
 
 // Helper function to send a command with uint32_t parameter
 static bool send_command_with_dword(uint8_t address, uint8_t command, uint32_t value) {
+    uart_lock();
+
     // Build complete packet first
     uint8_t packet[8];
     packet[0] = address;
@@ -129,113 +140,121 @@ static bool send_command_with_dword(uint8_t address, uint8_t command, uint32_t v
     packet[3] = (uint8_t)(value >> 16);
     packet[4] = (uint8_t)(value >> 8);
     packet[5] = (uint8_t)(value);
-    
+
     // Calculate CRC on address + command + 4 bytes of value
     uint16_t crc = roboclaw_crc16(packet, 6);
-    
+
     // Add CRC to packet
     packet[6] = (uint8_t)(crc >> 8);
     packet[7] = (uint8_t)(crc & 0xFF);
-    
+
     // Clear UART buffer
     flush();
-    
+
     // Send entire packet at once
     int sent = write_bytes(packet, 8);
     if (sent != 8) {
+        uart_unlock();
         return false;
     }
-    
+
     // Wait for 0xFF response with 10ms timeout
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
     return (len == 1 && response == 0xFF);
 }
 
 // Motor control functions
 bool ForwardM1(uint8_t address, uint8_t speed) {
-    ESP_LOGI(TAG, "ForwardM1: address=0x%02X, speed=%d", address, speed);
+    ESP_LOGD(TAG, "ForwardM1: address=0x%02X, speed=%d", address, speed);
     return send_command_with_byte(address, M1FORWARD, speed);
 }
 
 bool BackwardM1(uint8_t address, uint8_t speed) {
-    ESP_LOGI(TAG, "BackwardM1: address=0x%02X, speed=%d", address, speed);
+    ESP_LOGD(TAG, "BackwardM1: address=0x%02X, speed=%d", address, speed);
     return send_command_with_byte(address, M1BACKWARD, speed);
 }
 
 bool ForwardM2(uint8_t address, uint8_t speed) {
-    ESP_LOGI(TAG, "ForwardM2: address=0x%02X, speed=%d", address, speed);
+    ESP_LOGD(TAG, "ForwardM2: address=0x%02X, speed=%d", address, speed);
     return send_command_with_byte(address, M2FORWARD, speed);
 }
 
 bool BackwardM2(uint8_t address, uint8_t speed) {
-    ESP_LOGI(TAG, "BackwardM2: address=0x%02X, speed=%d", address, speed);
+    ESP_LOGD(TAG, "BackwardM2: address=0x%02X, speed=%d", address, speed);
     return send_command_with_byte(address, M2BACKWARD, speed);
 }
 
 bool SpeedM1(uint8_t address, uint32_t speed) {
-    ESP_LOGI(TAG, "SpeedM1: address=0x%02X, speed=%" PRIu32, address, speed);
+    ESP_LOGD(TAG, "SpeedM1: address=0x%02X, speed=%" PRIu32, address, speed);
     return send_command_with_dword(address, M1SPEED, speed);
 }
 
 bool SpeedM2(uint8_t address, uint32_t speed) {
-    ESP_LOGI(TAG, "SpeedM2: address=0x%02X, speed=%" PRIu32, address, speed);
+    ESP_LOGD(TAG, "SpeedM2: address=0x%02X, speed=%" PRIu32, address, speed);
     return send_command_with_dword(address, M2SPEED, speed);
 }
 
 // Helper function to read data with CRC validation
-static bool read_data_with_crc(uint8_t address, uint8_t command, uint8_t *buffer, 
+static bool read_data_with_crc(uint8_t address, uint8_t command, uint8_t *buffer,
                                int expected_data_bytes, int timeout_ms) {
+    uart_lock();
+
     // Build command packet
     uint8_t cmd_packet[4];
     cmd_packet[0] = address;
     cmd_packet[1] = command;
-    
+
     // Calculate CRC for command
     uint16_t crc = roboclaw_crc16(cmd_packet, 2);
-    
+
     // Add CRC to packet
     cmd_packet[2] = (uint8_t)(crc >> 8);
     cmd_packet[3] = (uint8_t)(crc & 0xFF);
-    
+
     // Clear UART buffer
     flush();
-    
+
     // Send command packet at once
     int sent = write_bytes(cmd_packet, 4);
     if (sent != 4) {
         ESP_LOGE(TAG, "Failed to send read command");
+        uart_unlock();
         return false;
     }
-    
+
     // Read response (data + 2 bytes CRC)
     uint8_t response[expected_data_bytes + 2];
     int len = read_bytes(response, expected_data_bytes + 2, timeout_ms);
-    
+
     if (len < expected_data_bytes + 2) {
-        ESP_LOGE(TAG, "Insufficient response: got %d bytes, expected %d", 
+        ESP_LOGE(TAG, "Insufficient response: got %d bytes, expected %d",
                  len, expected_data_bytes + 2);
+        uart_unlock();
         return false;
     }
-    
+
     // Verify CRC - include address and command in CRC calculation
     uint8_t crc_data[2 + expected_data_bytes];
     crc_data[0] = address;
     crc_data[1] = command;
     memcpy(crc_data + 2, response, expected_data_bytes);
-    
+
     uint16_t calculated_crc = roboclaw_crc16(crc_data, 2 + expected_data_bytes);
     uint16_t received_crc = (response[expected_data_bytes] << 8) | response[expected_data_bytes + 1];
-    
+
     if (calculated_crc != received_crc) {
-        ESP_LOGE(TAG, "CRC mismatch: calculated=0x%04X, received=0x%04X", 
+        ESP_LOGE(TAG, "CRC mismatch: calculated=0x%04X, received=0x%04X",
                  calculated_crc, received_crc);
+        uart_unlock();
         return false;
     }
-    
+
     // Copy data bytes
     memcpy(buffer, response, expected_data_bytes);
-    
+
+    uart_unlock();
     return true;
 }
 
@@ -289,37 +308,40 @@ bool ResetEncoders(uint8_t address) {
 // Version reading
 bool ReadVersion(uint8_t address, char *version) {
     if (!version) return false;
-    
+
+    uart_lock();
+
     // Build command packet
     uint8_t cmd_packet[4];
     cmd_packet[0] = address;
     cmd_packet[1] = GETVERSION;
-    
+
     // Calculate CRC
     uint16_t crc = roboclaw_crc16(cmd_packet, 2);
-    
+
     // Add CRC
     cmd_packet[2] = (uint8_t)(crc >> 8);
     cmd_packet[3] = (uint8_t)(crc & 0xFF);
-    
+
     // Clear buffer
     flush();
-    
+
     // Send command
     int sent = write_bytes(cmd_packet, 4);
     if (sent != 4) {
+        uart_unlock();
         return false;
     }
-    
-    
+
     // Read response
     uint8_t response[64];
     int len = read_bytes(response, sizeof(response), 1000);
-    
+
     if (len < 4) {
+        uart_unlock();
         return false;
     }
-    
+
     // Extract version string (skip last 2 CRC bytes)
     int version_len = 0;
     for (int i = 0; i < (len - 2) && version_len < 47; i++) {
@@ -331,7 +353,8 @@ bool ReadVersion(uint8_t address, char *version) {
         }
     }
     version[version_len] = '\0';
-    
+
+    uart_unlock();
     return true;
 }
 
@@ -480,44 +503,50 @@ bool ReadError(uint8_t address, uint8_t *error) {
 
 // Duty cycle control functions (direct PWM control)
 bool DutyM1(uint8_t address, int16_t duty) {
+    uart_lock();
+
     // Duty is -32767 to 32767
     uint8_t packet[6];
     packet[0] = address;
     packet[1] = M1DUTY;
     packet[2] = (uint8_t)(duty >> 8);
     packet[3] = (uint8_t)(duty & 0xFF);
-    
+
     uint16_t crc = roboclaw_crc16(packet, 4);
     packet[4] = (uint8_t)(crc >> 8);
     packet[5] = (uint8_t)(crc & 0xFF);
-    
+
     flush();
     int sent = write_bytes(packet, 6);
-    if (sent != 6) return false;
-    
+    if (sent != 6) { uart_unlock(); return false; }
+
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
     return (len == 1 && response == 0xFF);
 }
 
 bool DutyM2(uint8_t address, int16_t duty) {
+    uart_lock();
+
     // Duty is -32767 to 32767
     uint8_t packet[6];
     packet[0] = address;
     packet[1] = M2DUTY;
     packet[2] = (uint8_t)(duty >> 8);
     packet[3] = (uint8_t)(duty & 0xFF);
-    
+
     uint16_t crc = roboclaw_crc16(packet, 4);
     packet[4] = (uint8_t)(crc >> 8);
     packet[5] = (uint8_t)(crc & 0xFF);
-    
+
     flush();
     int sent = write_bytes(packet, 6);
-    if (sent != 6) return false;
-    
+    if (sent != 6) { uart_unlock(); return false; }
+
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
     return (len == 1 && response == 0xFF);
 }
 
@@ -548,6 +577,8 @@ bool LeftRightMixed(uint8_t address, uint8_t speed) {
 
 // Speed with acceleration control
 bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed) {
+    uart_lock();
+
     uint8_t packet[10];
     packet[0] = address;
     packet[1] = M1SPEEDACCEL;
@@ -559,24 +590,27 @@ bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed) {
     packet[7] = (uint8_t)(speed >> 16);
     packet[8] = (uint8_t)(speed >> 8);
     packet[9] = (uint8_t)(speed);
-    
+
     uint16_t crc = roboclaw_crc16(packet, 10);
-    
+
     uint8_t full_packet[12];
     memcpy(full_packet, packet, 10);
     full_packet[10] = (uint8_t)(crc >> 8);
     full_packet[11] = (uint8_t)(crc & 0xFF);
-    
+
     flush();
     int sent = write_bytes(full_packet, 12);
-    if (sent != 12) return false;
-    
+    if (sent != 12) { uart_unlock(); return false; }
+
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
     return (len == 1 && response == 0xFF);
 }
 
 bool SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t speed) {
+    uart_lock();
+
     uint8_t packet[10];
     packet[0] = address;
     packet[1] = M2SPEEDACCEL;
@@ -588,20 +622,21 @@ bool SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t speed) {
     packet[7] = (uint8_t)(speed >> 16);
     packet[8] = (uint8_t)(speed >> 8);
     packet[9] = (uint8_t)(speed);
-    
+
     uint16_t crc = roboclaw_crc16(packet, 10);
-    
+
     uint8_t full_packet[12];
     memcpy(full_packet, packet, 10);
     full_packet[10] = (uint8_t)(crc >> 8);
     full_packet[11] = (uint8_t)(crc & 0xFF);
-    
+
     flush();
     int sent = write_bytes(full_packet, 12);
-    if (sent != 12) return false;
-    
+    if (sent != 12) { uart_unlock(); return false; }
+
     uint8_t response;
     int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+    uart_unlock();
     return (len == 1 && response == 0xFF);
 }
 

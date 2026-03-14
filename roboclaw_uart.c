@@ -6,6 +6,7 @@
 
 static const char *TAG = "ROBOCLAW_UART";
 static uart_port_t uart_num = UART_NUM_1;
+static SemaphoreHandle_t uart_mutex = NULL;
 
 #define UART_BUFFER_SIZE 1024
 #define TXD_PIN 17
@@ -13,6 +14,7 @@ static uart_port_t uart_num = UART_NUM_1;
 
 // Initialize UART
 void begin(uint32_t baud_rate) {
+    uart_mutex = xSemaphoreCreateMutex();
     const uart_config_t uart_config = {
         .baud_rate = baud_rate,
         .data_bits = UART_DATA_8_BITS,
@@ -42,4 +44,13 @@ int read_bytes(uint8_t *buffer, size_t length, uint32_t timeout_ms) {
 // Write multiple bytes (main communication function)
 int write_bytes(const uint8_t *data, size_t length) {
     return uart_write_bytes(uart_num, data, length);
+}
+
+// Thread-safe UART access
+void uart_lock(void) {
+    if (uart_mutex) xSemaphoreTake(uart_mutex, portMAX_DELAY);
+}
+
+void uart_unlock(void) {
+    if (uart_mutex) xSemaphoreGive(uart_mutex);
 }

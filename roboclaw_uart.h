@@ -15,3 +15,7 @@ int read_bytes(uint8_t *buffer, size_t length, uint32_t timeout_ms);
 
 // Write multiple bytes (main communication function)
 int write_bytes(const uint8_t *data, size_t length);
+
+// Thread-safe UART access (must be called around complete transactions)
+void uart_lock(void);
+void uart_unlock(void);
