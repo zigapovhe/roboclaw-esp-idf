@@ -18,7 +18,7 @@ static const char *TAG = "ROBOCLAW";
 
 // Helper function to send a simple command (address + command + CRC)
 static bool send_simple_command(uint8_t address, uint8_t command) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[4];
     packet[0] = address;
@@ -63,7 +63,7 @@ static bool send_command_with_byte(uint8_t address, uint8_t command, uint8_t val
     ESP_LOGD(TAG, "send_command_with_byte: addr=0x%02X, cmd=0x%02X, value=%d",
              address, command, value);
 
-    uart_lock();
+    if (!uart_lock()) return false;
 
     for (int retry = 0; retry < MAX_RETRIES; retry++) {
         if (retry > 0) {
@@ -130,7 +130,7 @@ static bool send_command_with_byte(uint8_t address, uint8_t command, uint8_t val
 
 // Helper function to send a command with uint32_t parameter
 static bool send_command_with_dword(uint8_t address, uint8_t command, uint32_t value) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     // Build complete packet first
     uint8_t packet[8];
@@ -199,7 +199,7 @@ bool SpeedM2(uint8_t address, uint32_t speed) {
 // Helper function to read data with CRC validation
 static bool read_data_with_crc(uint8_t address, uint8_t command, uint8_t *buffer,
                                int expected_data_bytes, int timeout_ms) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     // Build command packet
     uint8_t cmd_packet[4];
@@ -309,7 +309,7 @@ bool ResetEncoders(uint8_t address) {
 bool ReadVersion(uint8_t address, char *version) {
     if (!version) return false;
 
-    uart_lock();
+    if (!uart_lock()) return false;
 
     // Build command packet
     uint8_t cmd_packet[4];
@@ -508,7 +508,7 @@ uint32_t ReadError(uint8_t address, bool *valid) {
 
 // Duty cycle control functions (direct PWM control)
 bool DutyM1(uint8_t address, int16_t duty) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     // Duty is -32767 to 32767
     uint8_t packet[6];
@@ -532,7 +532,7 @@ bool DutyM1(uint8_t address, int16_t duty) {
 }
 
 bool DutyM2(uint8_t address, int16_t duty) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     // Duty is -32767 to 32767
     uint8_t packet[6];
@@ -556,32 +556,38 @@ bool DutyM2(uint8_t address, int16_t duty) {
 }
 
 bool DutyM1M2(uint8_t address, int16_t duty1, int16_t duty2) {
-    uart_lock();
+    const int MAX_RETRIES = 3;
 
-    uint8_t packet[8];
-    packet[0] = address;
-    packet[1] = MIXEDDUTY;
-    packet[2] = (uint8_t)(duty1 >> 8);
-    packet[3] = (uint8_t)(duty1 & 0xFF);
-    packet[4] = (uint8_t)(duty2 >> 8);
-    packet[5] = (uint8_t)(duty2 & 0xFF);
+    for (int retry = 0; retry < MAX_RETRIES; retry++) {
+        if (!uart_lock()) continue;
+        if (retry > 0) vTaskDelay(pdMS_TO_TICKS(5));
 
-    uint16_t crc = roboclaw_crc16(packet, 6);
-    packet[6] = (uint8_t)(crc >> 8);
-    packet[7] = (uint8_t)(crc & 0xFF);
+        uint8_t packet[8];
+        packet[0] = address;
+        packet[1] = MIXEDDUTY;
+        packet[2] = (uint8_t)(duty1 >> 8);
+        packet[3] = (uint8_t)(duty1 & 0xFF);
+        packet[4] = (uint8_t)(duty2 >> 8);
+        packet[5] = (uint8_t)(duty2 & 0xFF);
 
-    flush();
-    int sent = write_bytes(packet, 8);
-    if (sent != 8) { uart_unlock(); return false; }
+        uint16_t crc = roboclaw_crc16(packet, 6);
+        packet[6] = (uint8_t)(crc >> 8);
+        packet[7] = (uint8_t)(crc & 0xFF);
 
-    uint8_t response;
-    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
-    uart_unlock();
-    return (len == 1 && response == 0xFF);
+        flush();
+        int sent = write_bytes(packet, 8);
+        if (sent != 8) { uart_unlock(); continue; }
+
+        uint8_t response;
+        int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+        uart_unlock();
+        if (len == 1 && response == 0xFF) return true;
+    }
+    return false;
 }
 
 bool DutyAccelM1(uint8_t address, int16_t duty, uint32_t accel) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[10];
     packet[0] = address;
@@ -608,7 +614,7 @@ bool DutyAccelM1(uint8_t address, int16_t duty, uint32_t accel) {
 }
 
 bool DutyAccelM2(uint8_t address, int16_t duty, uint32_t accel) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[10];
     packet[0] = address;
@@ -634,37 +640,47 @@ bool DutyAccelM2(uint8_t address, int16_t duty, uint32_t accel) {
     return (len == 1 && response == 0xFF);
 }
 
+// MIXEDDUTYACCEL (cmd 54) sets M1 and M2 independently in one packet (NOT arcade mode).
 bool DutyAccelM1M2(uint8_t address, int16_t duty1, uint32_t accel1, int16_t duty2, uint32_t accel2) {
-    uart_lock();
+    const int MAX_RETRIES = 3;
 
-    uint8_t packet[16];
-    packet[0]  = address;
-    packet[1]  = MIXEDDUTYACCEL;
-    packet[2]  = (uint8_t)(duty1 >> 8);
-    packet[3]  = (uint8_t)(duty1 & 0xFF);
-    packet[4]  = (uint8_t)(accel1 >> 24);
-    packet[5]  = (uint8_t)(accel1 >> 16);
-    packet[6]  = (uint8_t)(accel1 >> 8);
-    packet[7]  = (uint8_t)(accel1);
-    packet[8]  = (uint8_t)(duty2 >> 8);
-    packet[9]  = (uint8_t)(duty2 & 0xFF);
-    packet[10] = (uint8_t)(accel2 >> 24);
-    packet[11] = (uint8_t)(accel2 >> 16);
-    packet[12] = (uint8_t)(accel2 >> 8);
-    packet[13] = (uint8_t)(accel2);
+    for (int retry = 0; retry < MAX_RETRIES; retry++) {
+        if (!uart_lock()) continue;
+        if (retry > 0) vTaskDelay(pdMS_TO_TICKS(5));
 
-    uint16_t crc = roboclaw_crc16(packet, 14);
-    packet[14] = (uint8_t)(crc >> 8);
-    packet[15] = (uint8_t)(crc & 0xFF);
+        uint8_t packet[16];
+        packet[0]  = address;
+        packet[1]  = MIXEDDUTYACCEL;
+        packet[2]  = (uint8_t)(duty1 >> 8);
+        packet[3]  = (uint8_t)(duty1 & 0xFF);
+        packet[4]  = (uint8_t)(accel1 >> 24);
+        packet[5]  = (uint8_t)(accel1 >> 16);
+        packet[6]  = (uint8_t)(accel1 >> 8);
+        packet[7]  = (uint8_t)(accel1);
+        packet[8]  = (uint8_t)(duty2 >> 8);
+        packet[9]  = (uint8_t)(duty2 & 0xFF);
+        packet[10] = (uint8_t)(accel2 >> 24);
+        packet[11] = (uint8_t)(accel2 >> 16);
+        packet[12] = (uint8_t)(accel2 >> 8);
+        packet[13] = (uint8_t)(accel2);
 
-    flush();
-    int sent = write_bytes(packet, 16);
-    if (sent != 16) { uart_unlock(); return false; }
+        uint16_t crc = roboclaw_crc16(packet, 14);
+        packet[14] = (uint8_t)(crc >> 8);
+        packet[15] = (uint8_t)(crc & 0xFF);
 
-    uint8_t response;
-    int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
-    uart_unlock();
-    return (len == 1 && response == 0xFF);
+        flush();
+        int sent = write_bytes(packet, 16);
+        if (sent != 16) { uart_unlock(); continue; }
+
+        uint8_t response;
+        int len = read_bytes(&response, 1, ROBOCLAW_RESPONSE_TIMEOUT_MS);
+        uart_unlock();
+        if (len == 1 && response == 0xFF) return true;
+
+        ESP_LOGW(TAG, "DutyAccelM1M2: no ACK (attempt %d/%d)", retry + 1, MAX_RETRIES);
+    }
+    ESP_LOGE(TAG, "DutyAccelM1M2: all retries failed for 0x%02X", address);
+    return false;
 }
 
 // Mixed motor control functions
@@ -694,7 +710,7 @@ bool LeftRightMixed(uint8_t address, uint8_t speed) {
 
 // Speed with acceleration control
 bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[10];
     packet[0] = address;
@@ -726,7 +742,7 @@ bool SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t speed) {
 }
 
 bool SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t speed) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[10];
     packet[0] = address;
@@ -776,7 +792,7 @@ uint8_t GetTimeout(uint8_t address, bool *valid) {
 
 // Voltage limit functions
 bool SetMainVoltages(uint8_t address, uint16_t min, uint16_t max, uint8_t auto_max) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[9];
     packet[0] = address;
@@ -802,7 +818,7 @@ bool SetMainVoltages(uint8_t address, uint16_t min, uint16_t max, uint8_t auto_m
 }
 
 bool SetLogicVoltages(uint8_t address, uint16_t min, uint16_t max) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[8];
     packet[0] = address;
@@ -855,7 +871,7 @@ bool ReadMinMaxLogicVoltages(uint8_t address, uint16_t *min, uint16_t *max) {
 
 // Current limit functions
 bool SetM1MaxCurrent(uint8_t address, uint32_t max, uint32_t min) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[12];
     packet[0] = address;
@@ -884,7 +900,7 @@ bool SetM1MaxCurrent(uint8_t address, uint32_t max, uint32_t min) {
 }
 
 bool SetM2MaxCurrent(uint8_t address, uint32_t max, uint32_t min) {
-    uart_lock();
+    if (!uart_lock()) return false;
 
     uint8_t packet[12];
     packet[0] = address;
@@ -994,7 +1010,10 @@ bool GetStatus(uint8_t address, uint32_t *tick, uint32_t *state,
                uint16_t *speed_error1, uint16_t *speed_error2,
                uint16_t *pos_error1, uint16_t *pos_error2) {
     uint8_t buffer[56];
-    if (!read_data_with_crc(address, GETSTATUS, buffer, 56, 1000)) {
+    // 100ms timeout: 58 bytes at 38400 baud takes ~15ms, so 100ms is generous.
+    // Previous 1000ms timeout could block the UART mutex for 1s+ on failure,
+    // starving drive commands and triggering the RoboClaw hardware timeout.
+    if (!read_data_with_crc(address, GETSTATUS, buffer, 56, 100)) {
         return false;
     }
 

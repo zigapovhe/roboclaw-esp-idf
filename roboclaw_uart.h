@@ -20,5 +20,6 @@ int write_bytes(const uint8_t *data, size_t length);
 void roboclaw_enable_thread_safety(void);
 
 // Internal lock/unlock (used automatically by roboclaw.c functions)
-void uart_lock(void);
+// uart_lock returns false if lock couldn't be acquired within 200ms
+bool uart_lock(void);
 void uart_unlock(void);

@@ -52,8 +52,11 @@ void roboclaw_enable_thread_safety(void) {
     }
 }
 
-void uart_lock(void) {
-    if (uart_mutex) xSemaphoreTake(uart_mutex, portMAX_DELAY);
+// Returns true if lock acquired, false on timeout.
+// 200ms limit prevents drive commands from being starved by telemetry reads.
+bool uart_lock(void) {
+    if (!uart_mutex) return true;
+    return xSemaphoreTake(uart_mutex, pdMS_TO_TICKS(200)) == pdTRUE;
 }
 
 void uart_unlock(void) {
