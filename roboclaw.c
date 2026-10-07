@@ -998,6 +998,18 @@ bool ReadPWMs(uint8_t address, int16_t *pwm1, int16_t *pwm2) {
     return true;
 }
 
+bool ReadPWMMode(uint8_t address, uint8_t *mode) {
+    if (!mode) return false;
+
+    uint8_t buffer[1];
+    if (!read_data_with_crc(address, GETPWMMODE, buffer, 1, 1000)) {
+        return false;
+    }
+
+    *mode = buffer[0];
+    return true;
+}
+
 // Comprehensive status (56 data bytes)
 bool GetStatus(uint8_t address, uint32_t *tick, uint32_t *state,
                uint16_t *temp1, uint16_t *temp2,

@@ -195,6 +195,10 @@ bool ReadM2MaxCurrent(uint8_t address, uint32_t *max, uint32_t *min);
 // --- Buffers and PWMs ---
 bool ReadBuffers(uint8_t address, uint8_t *depth1, uint8_t *depth2);
 bool ReadPWMs(uint8_t address, int16_t *pwm1, int16_t *pwm2);
+// PWM drive mode: 0 = Locked Antiphase, 1 = Sign Magnitude (manual cmd 149).
+// Decides what the bridge does at zero duty — antiphase keeps it energised,
+// sign magnitude switches it off, which coasts.
+bool ReadPWMMode(uint8_t address, uint8_t *mode);
 
 // --- NVM and config ---
 bool WriteNVM(uint8_t address);
